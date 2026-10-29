@@ -90,40 +90,29 @@ st.markdown(
         line-height: 1.8;
     }
 
-    /* Readable question box */
-    div[data-testid="stTextArea"] label {
-        color: #244c3b !important;
-        font-size: 1.1rem !important;
-        font-weight: 600 !important;
-    }
-
-    div[data-testid="stTextArea"] textarea {
+    /* Chat input */
+    div[data-testid="stChatInput"] textarea {
         background-color: #ffffff !important;
         color: #26352e !important;
-        -webkit-text-fill-color: #26352e !important;
         font-size: 1.1rem !important;
         line-height: 1.6 !important;
-        min-height: 6rem;
-        border: 1px solid #b8c8bb !important;
-        border-radius: 8px !important;
     }
 
-    div[data-testid="stTextArea"] textarea::placeholder {
+    div[data-testid="stChatInput"] textarea::placeholder {
         color: #66736b !important;
-        -webkit-text-fill-color: #66736b !important;
         opacity: 1 !important;
     }
 
-    /* Readable buttons */
+    /* Buttons */
     div.stButton > button {
         background-color: #315f48 !important;
         color: #ffffff !important;
         border: 1px solid #315f48 !important;
         border-radius: 8px;
         min-height: 3rem;
-        font-size: 1.1rem;
+        font-size: 1.05rem;
         font-weight: 600;
-        padding: 0.5rem 1.5rem;
+        padding: 0.5rem 1rem;
     }
 
     div.stButton > button:hover {
@@ -164,8 +153,9 @@ st.markdown(
     <div class="welcome-card">
         <strong>Welcome!</strong><br>
         This assistant helps you understand senior citizen rights
-        in simple English. You can ask questions about the
-        Maintenance and Welfare of Parents and Senior Citizens Act, 2007.
+        and welfare information in simple English. Ask questions about
+        the Maintenance and Welfare of Parents and Senior Citizens Act,
+        2007, and Atal Pension Yojana (APY).
     </div>
     """,
     unsafe_allow_html=True,
@@ -174,13 +164,13 @@ st.markdown(
 st.markdown("### How can we help you?")
 
 st.write(
-    "Type your question in the box below, then select "
-    "**Get Answer**."
+    "Ask a question below. You can continue asking questions "
+    "without refreshing the page."
 )
 
 st.caption(
     "Example questions: Who can apply for maintenance? "
-    "What is the appeal process? What does the Act say about tribunals?"
+    "What is Atal Pension Yojana? What is the appeal process?"
 )
 
 st.divider()
@@ -215,195 +205,264 @@ def get_gemini_client(api_key):
 
 
 # --------------------------------------------------
-# 6. Question input
+# 6. Conversation state and New Chat button
 # --------------------------------------------------
 
-question = st.text_area(
-    "Your question",
-    placeholder="For example: Who can apply for maintenance?",
-    height=110,
-)
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-ask_button = st.button(
-    "Get Answer",
-    use_container_width=True,
-)
+header_left, header_right = st.columns([3, 1])
+
+with header_left:
+    st.markdown("### Your conversation")
+
+with header_right:
+    if st.button("New Chat", use_container_width=True):
+        st.session_state.messages = []
+        st.rerun()
 
 
 # --------------------------------------------------
-# 7. Search documents and generate answer
+# 7. Display previous messages and their sources
 # --------------------------------------------------
 
-if ask_button:
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
-    if not question.strip():
-        st.warning("Please type a question before continuing.")
-
-    elif not API_KEY:
-        st.error(
-            "The Gemini API key was not found. "
-            "Please check your .env file."
-        )
-
-    elif not INDEX_FOLDER.exists():
-        st.error(
-            "The document search index was not found. "
-            "Please check your faiss_index folder."
-        )
-
-    else:
-        try:
-            with st.spinner(
-                "Searching the Act and preparing your answer..."
-            ):
-
-                vector_store = load_knowledge_base(
-                    str(INDEX_FOLDER)
-                )
-
-                client = get_gemini_client(API_KEY)
-
-                search_question = question.strip()
-                question_lower = search_question.lower()
-
-                # Improve retrieval for Section 5 questions.
-                section_five_question = (
-                    "who can apply" in question_lower
-                    or "who may apply" in question_lower
-                    or "application for maintenance" in question_lower
-                    or (
-                        "section 5" in question_lower
-                        and (
-                            "maintenance" in question_lower
-                            or "apply" in question_lower
-                        )
+        if message["role"] == "assistant" and message.get("sources"):
+            with st.expander("View document sources"):
+                for number, source in enumerate(
+                    message["sources"], start=1
+                ):
+                    st.markdown(f"**Source {number}**")
+                    st.caption(
+                        f"Document: {source['name']} | "
+                        f"Page: {source['page']}"
                     )
-                )
-
-                if section_five_question:
-                    search_question = (
-                        "Section 5 Application for maintenance. "
-                        "Subsection (1), clauses (a), (b), and (c). "
-                        "Application may be made by a senior citizen "
-                        "or parent; if incapable, by another person "
-                        "or organisation authorised by them; or the "
-                        "Tribunal may take cognizance suo motu. "
-                        "Definition of organisation in Section 5."
-                    )
-
-                # Retrieve six chunks instead of four.
-                documents = vector_store.similarity_search(
-                    search_question,
-                    k=6,
-                )
-
-                if not documents:
-                    st.warning(
-                        "No relevant information was found in the "
-                        "available documents. Please try rephrasing "
-                        "your question."
-                    )
-
-                else:
-                    context = "\n\n".join(
-                        (
-                            f"DOCUMENT: "
-                            f"{document.metadata.get('source', 'Unknown')}\n"
-                            f"PAGE: "
-                            f"{document.metadata.get('page', 'Unknown')}\n"
-                            f"TEXT:\n{document.page_content}"
-                        )
-                        for document in documents
-                    )
-
-                    # More precise answer instructions.
-                    prompt = (
-                        "You are an Elder-Care Assistant that explains "
-                        "Indian senior citizen law in simple English.\n\n"
-
-                        "IMPORTANT INSTRUCTIONS:\n"
-                        "1. Answer the user's exact question directly.\n"
-                        "2. Use only the provided document sections "
-                        "for legal claims.\n"
-                        "3. Read all supplied sections carefully.\n"
-                        "4. If the question asks who may apply under "
-                        "Section 5, include all three clauses:\n"
-                        "(a) the senior citizen or parent;\n"
-                        "(b) if they are incapable, another person "
-                        "or organisation authorised by them;\n"
-                        "(c) the Tribunal may take cognizance suo motu.\n"
-                        "5. Explain legal terms in simple English.\n"
-                        "6. If the supplied text contains the answer, "
-                        "do not claim that the information is missing.\n"
-                        "7. Do not invent legal rules or facts.\n"
-                        "8. If the supplied text genuinely does not "
-                        "contain the answer, say so clearly.\n"
-                        "9. This is general information, not legal advice.\n\n"
-
-                        f"DOCUMENT SECTIONS:\n{context}\n\n"
-                        f"USER QUESTION:\n{question.strip()}\n\n"
-
-                        "Write a clear answer with numbered points "
-                        "when appropriate. Include every relevant "
-                        "clause supported by the supplied text."
-                    )
-
-                    response = client.models.generate_content(
-                        model="gemini-3.5-flash-lite",
-                        contents=prompt,
-                    )
-
+                    st.write(source["text"])
                     st.divider()
-                    st.markdown("## Answer")
 
-                    if response.text:
-                        st.markdown(
-                            '<div class="info-card">',
-                            unsafe_allow_html=True,
+
+# --------------------------------------------------
+# 8. Question input
+# --------------------------------------------------
+
+question = st.chat_input(
+    "Ask a question about senior citizen rights or APY..."
+)
+
+
+# --------------------------------------------------
+# 9. Search documents and generate an answer
+# --------------------------------------------------
+
+if question:
+
+    # Save and display the new user question.
+    st.session_state.messages.append(
+        {
+            "role": "user",
+            "content": question,
+        }
+    )
+
+    with st.chat_message("user"):
+        st.markdown(question)
+
+    answer = ""
+    sources = []
+
+    with st.chat_message("assistant"):
+
+        if not API_KEY:
+            answer = (
+                "The Gemini API key was not found. "
+                "Please check your application secrets or .env settings."
+            )
+            st.error(answer)
+
+        elif not INDEX_FOLDER.exists():
+            answer = (
+                "The document search index was not found. "
+                "Please check the faiss_index folder."
+            )
+            st.error(answer)
+
+        else:
+            try:
+                with st.spinner(
+                    "Searching your documents and preparing an answer..."
+                ):
+                    vector_store = load_knowledge_base(
+                        str(INDEX_FOLDER)
+                    )
+
+                    client = get_gemini_client(API_KEY)
+
+                    question_lower = question.lower()
+                    search_question = question
+
+                    # Improve retrieval for Section 5 questions.
+                    section_five_question = (
+                        "who can apply" in question_lower
+                        or "who may apply" in question_lower
+                        or "application for maintenance" in question_lower
+                        or (
+                            "section 5" in question_lower
+                            and (
+                                "maintenance" in question_lower
+                                or "apply" in question_lower
+                            )
+                        )
+                    )
+
+                    if section_five_question:
+                        search_question = (
+                            "Section 5 Application for maintenance. "
+                            "Subsection (1), clauses (a), (b), and (c). "
+                            "Application may be made by a senior citizen "
+                            "or parent; if incapable, by another person "
+                            "or organisation authorised by them; or the "
+                            "Tribunal may take cognizance suo motu. "
+                            "Definition of organisation in Section 5."
                         )
 
-                        st.markdown(response.text)
+                    # Retrieve relevant document sections.
+                    documents = vector_store.similarity_search(
+                        search_question,
+                        k=6,
+                    )
 
-                        st.markdown(
-                            "</div>",
-                            unsafe_allow_html=True,
+                    if not documents:
+                        answer = (
+                            "I couldn't find relevant information in "
+                            "the available documents. Please try "
+                            "rephrasing your question."
                         )
+                        st.warning(answer)
 
                     else:
-                        st.warning(
-                            "No answer was returned. Please try again."
+                        context = "\n\n".join(
+                            (
+                                f"DOCUMENT: "
+                                f"{document.metadata.get('source', 'Unknown')}\n"
+                                f"PAGE: "
+                                f"{document.metadata.get('page', 'Unknown')}\n"
+                                f"TEXT:\n{document.page_content}"
+                            )
+                            for document in documents
                         )
 
-                    # Display the exact passages used.
-                     
-                    # Display readable document sources.
-                    with st.expander("View document sources"):
-                        for number, document in enumerate(documents, start=1):
-                            source_name = Path(
-                                document.metadata.get("source", "Unknown")
-                            ).name
-                            page_number = document.metadata.get("page", "Unknown")
-                            source_text = document.page_content.strip()
+                        # Keep the last three exchanges for follow-up context.
+                        previous_messages = (
+                            st.session_state.messages[:-1][-6:]
+                        )
 
-                            st.markdown(f"**Source {number}**")
-                            st.caption(
-                                f"Document: {source_name} | Page: {page_number}"
-                            )
-                            st.write(source_text)
-                            st.divider()
+                        history_text = "\n".join(
+                            f"{item['role'].upper()}: {item['content']}"
+                            for item in previous_messages
+                        )
 
-                           
-        except Exception as error:
-            st.error(
-                "We could not generate your answer. "
-                "Please check your connection and try again."
-            )
+                        prompt = (
+                            "You are an Elder-Care Assistant that explains "
+                            "Indian senior citizen law and pension information "
+                            "in simple English.\n\n"
 
-            st.caption(f"Technical details: {error}")
+                            "IMPORTANT INSTRUCTIONS:\n"
+                            "1. Answer the current question directly.\n"
+                            "2. Use only the supplied document sections "
+                            "for factual and legal claims.\n"
+                            "3. Do not invent facts, benefits, or legal rules.\n"
+                            "4. If the documents do not contain the answer, "
+                            "say so clearly.\n"
+                            "5. Explain legal terms in simple English.\n"
+                            "6. For Section 5 questions about who may apply, "
+                            "include all three clauses when supported by "
+                            "the supplied text: (a) the senior citizen or "
+                            "parent; (b) an authorised person or organisation "
+                            "if they are incapable; and (c) the Tribunal "
+                            "taking cognizance suo motu.\n"
+                            "7. Use previous messages only to understand "
+                            "follow-up questions. Ground factual answers "
+                            "in the supplied documents.\n"
+                            "8. This is general information, not legal advice.\n\n"
+
+                            f"RECENT CONVERSATION:\n"
+                            f"{history_text or 'No previous questions.'}\n\n"
+
+                            f"DOCUMENT SECTIONS:\n{context}\n\n"
+
+                            f"CURRENT QUESTION:\n{question}\n\n"
+
+                            "Write a clear, helpful answer. Use numbered "
+                            "points when appropriate. Do not claim that "
+                            "information is missing if it appears in "
+                            "the supplied document sections."
+                        )
+
+                        response = client.models.generate_content(
+                            model="gemini-3.5-flash-lite",
+                            contents=prompt,
+                        )
+
+                        answer = response.text or (
+                            "Sorry, I couldn't prepare an answer. "
+                            "Please try asking again."
+                        )
+
+                        # Save the sources alongside this answer.
+                        sources = [
+                            {
+                                "name": Path(
+                                    document.metadata.get(
+                                        "source", "Unknown"
+                                    )
+                                ).name,
+                                "page": document.metadata.get(
+                                    "page", "Unknown"
+                                ),
+                                "text": document.page_content.strip(),
+                            }
+                            for document in documents
+                        ]
+
+                        st.markdown(answer)
+
+                        # Show sources for the current answer.
+                        with st.expander("View document sources"):
+                            for number, source in enumerate(
+                                sources, start=1
+                            ):
+                                st.markdown(f"**Source {number}**")
+                                st.caption(
+                                    f"Document: {source['name']} | "
+                                    f"Page: {source['page']}"
+                                )
+                                st.write(source["text"])
+                                st.divider()
+
+            except Exception as error:
+                answer = (
+                    "Sorry, I couldn't generate your answer. "
+                    "Please check your connection and try again."
+                )
+                sources = []
+                st.error(answer)
+                st.caption(f"Technical details: {error}")
+
+    # Save the assistant response so it remains visible on reruns.
+    st.session_state.messages.append(
+        {
+            "role": "assistant",
+            "content": answer,
+            "sources": sources,
+        }
+    )
 
 
 # --------------------------------------------------
-# 8. Important information
+# 10. Important information
 # --------------------------------------------------
 
 st.divider()
