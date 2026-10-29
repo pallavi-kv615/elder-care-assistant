@@ -328,6 +328,21 @@ if question:
                             "Definition of organisation in Section 5."
                         )
 
+                    # Improve retrieval for APY questions.
+                    apy_question = (
+                        "apy" in question_lower
+                        or "atal pension" in question_lower
+                        or "pension yojana" in question_lower
+                    )
+
+                    if apy_question:
+                        search_question = (
+                            "Atal Pension Yojana (APY), pension scheme, "
+                            "scheme overview, eligibility, contributions, "
+                            "pension benefits, subscriber, spouse, nominee, "
+                            "account opening, and scheme features."
+                        )
+
                     # Retrieve relevant document sections.
                     documents = vector_store.similarity_search(
                         search_question,
@@ -386,7 +401,19 @@ if question:
                             "7. Use previous messages only to understand "
                             "follow-up questions. Ground factual answers "
                             "in the supplied documents.\n"
-                            "8. This is general information, not legal advice.\n\n"
+                            "8. This is general information, not legal advice.\n"
+                            "9. When asked what APY is, explain that APY "
+                            "stands for Atal Pension Yojana and briefly "
+                            "describe it as a pension scheme. Start with "
+                            "this direct explanation, then describe relevant "
+                            "features using the supplied documents. Do not "
+                            "say its meaning is missing from the documents "
+                            "when the scheme name is clear from the question "
+                            "or supplied context.\n"
+                            "10. For APY questions, focus on the document "
+                            "sections about APY. Include only benefits, "
+                            "eligibility rules, contributions, or other "
+                            "details that are supported by those sections.\n\n"
 
                             f"RECENT CONVERSATION:\n"
                             f"{history_text or 'No previous questions.'}\n\n"
